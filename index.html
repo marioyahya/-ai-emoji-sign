@@ -1,0 +1,243 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capital Arts AI Emoji Sign</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #10151c;
+  color: white;
+  font-family: -apple-system, Arial, sans-serif;
+  text-align: center;
+}
+
+header {
+  padding: 18px;
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.sign {
+  width: min(78vw, 330px);
+  height: min(78vw, 330px);
+  margin: 20px auto;
+  border: 7px solid #444b55;
+  border-radius: 50%;
+  background: #ffcf24;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-shadow: 0 8px 30px #0008;
+}
+
+#emoji {
+  font-size: clamp(100px, 43vw, 190px);
+  line-height: 1;
+}
+
+button {
+  padding: 15px 30px;
+  border: none;
+  border-radius: 12px;
+  background: #008996;
+  color: white;
+  font-size: 18px;
+  font-weight: bold;
+  margin: 10px;
+}
+
+button:disabled {
+  opacity: 0.6;
+}
+
+video {
+  width: 180px;
+  max-width: 55vw;
+  border-radius: 12px;
+  margin-top: 15px;
+  transform: scaleX(-1);
+}
+
+#status {
+  color: #cbd5e1;
+  min-height: 42px;
+  padding: 10px;
+}
+
+label {
+  display: block;
+  margin: 15px;
+}
+
+input {
+  width: 70%;
+}
+
+small {
+  display: block;
+  padding: 15px;
+  color: #aab4c2;
+}
+</style>
+</head>
+
+<body>
+
+<header>CAPITAL ARTS · AI EMOJI SIGN</header>
+
+<div class="sign">
+  <div id="emoji">🙂</div>
+</div>
+
+<div id="status">Ready to detect your face</div>
+
+<button id="start">Start Camera</button>
+
+<div>
+  <video id="camera" autoplay muted playsinline></video>
+</div>
+
+<label>
+  Smile Sensitivity
+  <input
+    id="sensitivity"
+    type="range"
+    min="0.30"
+    max="0.55"
+    step="0.01"
+    value="0.41">
+</label>
+
+<small>
+  Camera processing runs on your device.
+  No video is uploaded or stored.
+  Internet is required to load face detection.
+</small>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+
+<script>
+const video = document.getElementById("camera");
+const emoji = document.getElementById("emoji");
+const statusText = document.getElementById("status");
+const startBtn = document.getElementById("start");
+const sensitivity = document.getElementById("sensitivity");
+
+let faceMesh;
+let running = false;
+let processing = false;
+
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+async function startCamera() {
+  startBtn.disabled = true;
+  statusText.textContent = "Starting camera...";
+
+  try {
+    if (!window.FaceMesh) {
+      throw new Error(
+        "Face detection library unavailable. Check internet."
+      );
+    }
+
+    const stream =
+      await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: 640,
+          height: 480
+        },
+        audio: false
+      });
+
+    video.srcObject = stream;
+    await video.play();
+
+    faceMesh = new FaceMesh({
+      locateFile: file =>
+        "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/" + file
+    });
+
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    faceMesh.onResults(results => {
+      const face = results.multiFaceLandmarks?.[0];
+
+      if (!face) {
+        emoji.textContent = "🙂";
+        statusText.textContent = "Looking for your face...";
+        return;
+      }
+
+      const mouthWidth = distance(face[61], face[291]);
+      const mouthOpen = distance(face[13], face[14]);
+      const faceWidth = distance(face[234], face[454]);
+
+      const smileRatio = mouthWidth / faceWidth;
+      const openRatio = mouthOpen / faceWidth;
+
+      if (openRatio > 0.11) {
+        emoji.textContent = "😮";
+        statusText.textContent = "Mouth open!";
+      }
+      else if (
+        smileRatio > Number(sensitivity.value)
+      ) {
+        emoji.textContent = "😄";
+        statusText.textContent = "Smile detected!";
+      }
+      else {
+        emoji.textContent = "🙂";
+        statusText.textContent = "Face detected";
+      }
+    });
+
+    running = true;
+    startBtn.textContent = "Camera Running";
+    statusText.textContent = "Camera started";
+
+    requestAnimationFrame(detectFace);
+
+  } catch (error) {
+    statusText.textContent = error.message;
+    startBtn.disabled = false;
+  }
+}
+
+async function detectFace() {
+  if (!running) return;
+
+  if (!processing && video.readyState >= 2) {
+    processing = true;
+
+    try {
+      await faceMesh.send({ image: video });
+    } catch (error) {
+      statusText.textContent =
+        "Detection error: " + error.message;
+    } finally {
+      processing = false;
+    }
+  }
+
+  requestAnimationFrame(detectFace);
+}
+
+startBtn.addEventListener("click", startCamera);
+</script>
+
+</body>
+</html>
