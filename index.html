@@ -3,8 +3,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Capital Arts AI Emoji Sign</title>
+<meta name="viewport"
+content="width=device-width,initial-scale=1">
+<title>Capital Arts AI Emoji Sign V2</title>
 
 <style>
 * { box-sizing: border-box; }
@@ -13,83 +14,99 @@ body {
   margin: 0;
   background: #10151c;
   color: white;
-  font-family: -apple-system, Arial, sans-serif;
+  font-family: -apple-system,Arial,sans-serif;
   text-align: center;
 }
 
 header {
   padding: 18px;
-  font-size: 20px;
-  font-weight: bold;
+  font-weight: 700;
+  font-size: 19px;
 }
 
 .sign {
-  width: min(78vw, 330px);
-  height: min(78vw, 330px);
-  margin: 20px auto;
-  border: 7px solid #444b55;
+  width: min(82vw,340px);
+  aspect-ratio: 1;
+  border: 7px solid #343b46;
   border-radius: 50%;
   background: #ffcf24;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  margin: 18px auto;
+  display: grid;
+  place-items: center;
   box-shadow: 0 8px 30px #0008;
 }
 
 #emoji {
-  font-size: clamp(100px, 43vw, 190px);
+  font-size: clamp(100px,43vw,190px);
   line-height: 1;
+  transition: transform .18s ease,
+              opacity .18s ease;
+}
+
+#emoji.change {
+  transform: scale(.90);
+  opacity: .65;
 }
 
 button {
-  padding: 15px 30px;
-  border: none;
-  border-radius: 12px;
   background: #008996;
   color: white;
-  font-size: 18px;
-  font-weight: bold;
-  margin: 10px;
+  border: none;
+  border-radius: 12px;
+  padding: 13px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 5px;
 }
 
 button:disabled {
-  opacity: 0.6;
+  opacity: .55;
+}
+
+#status {
+  min-height: 42px;
+  color: #d5dce5;
+  padding: 8px;
 }
 
 video {
   width: 180px;
   max-width: 55vw;
+  margin: 12px auto;
   border-radius: 12px;
-  margin-top: 15px;
   transform: scaleX(-1);
 }
 
-#status {
-  color: #cbd5e1;
-  min-height: 42px;
-  padding: 10px;
+video.hidden {
+  display: none;
+}
+
+.controls {
+  padding: 12px;
 }
 
 label {
   display: block;
-  margin: 15px;
+  margin: 16px auto;
+  font-size: 14px;
 }
 
-input {
-  width: 70%;
+input[type=range] {
+  width: 72%;
 }
 
 small {
   display: block;
   padding: 15px;
-  color: #aab4c2;
+  color: #aeb8c7;
+  line-height: 1.5;
 }
 </style>
 </head>
 
 <body>
 
-<header>CAPITAL ARTS · AI EMOJI SIGN</header>
+<header>CAPITAL ARTS · AI EMOJI SIGN V2</header>
 
 <div class="sign">
   <div id="emoji">🙂</div>
@@ -97,27 +114,38 @@ small {
 
 <div id="status">Ready to detect your face</div>
 
-<button id="start">Start Camera</button>
-
-<div>
-  <video id="camera" autoplay muted playsinline></video>
+<div class="controls">
+  <button id="start">Start Camera</button>
+  <button id="preview">Hide Camera</button>
 </div>
+
+<video id="camera"
+autoplay muted playsinline></video>
 
 <label>
   Smile Sensitivity
-  <input
-    id="sensitivity"
-    type="range"
-    min="0.30"
-    max="0.55"
-    step="0.01"
-    value="0.41">
+  <input id="smileSensitivity"
+  type="range"
+  min="0.32" max="0.55"
+  step="0.01" value="0.41">
+</label>
+
+<label>
+  Expression Stability
+  <input id="stability"
+  type="range"
+  min="2" max="12"
+  step="1" value="5">
 </label>
 
 <small>
-  Camera processing runs on your device.
-  No video is uploaded or stored.
-  Internet is required to load face detection.
+  Expressions: Normal, Happy, Surprised,
+  Sad, Angry and Wink.
+  <p>
+  Facial tracking runs on your device.
+  No camera video is uploaded or stored.
+  Internet is needed to load MediaPipe.
+  </p>
 </small>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
@@ -127,14 +155,148 @@ const video = document.getElementById("camera");
 const emoji = document.getElementById("emoji");
 const statusText = document.getElementById("status");
 const startBtn = document.getElementById("start");
-const sensitivity = document.getElementById("sensitivity");
+const previewBtn = document.getElementById("preview");
+const smileInput =
+  document.getElementById("smileSensitivity");
+const stabilityInput =
+  document.getElementById("stability");
 
 let faceMesh;
 let running = false;
 let processing = false;
+let currentExpression = "normal";
+let candidate = "normal";
+let candidateCount = 0;
 
-function distance(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
+const emojis = {
+  normal: "🙂",
+  happy: "😄",
+  surprise: "😮",
+  sad: "😢",
+  angry: "😠",
+  wink: "😉"
+};
+
+const names = {
+  normal: "Normal",
+  happy: "Happy / Laughing",
+  surprise: "Surprised",
+  sad: "Sad (experimental)",
+  angry: "Angry (experimental)",
+  wink: "Wink detected"
+};
+
+function distance(a,b) {
+  return Math.hypot(a.x-b.x,a.y-b.y);
+}
+
+function ratio(a,b,base) {
+  return distance(a,b) / Math.max(base,0.0001);
+}
+
+function showExpression(expression) {
+  if (expression === currentExpression) return;
+
+  currentExpression = expression;
+  emoji.classList.add("change");
+
+  setTimeout(() => {
+    emoji.textContent = emojis[expression];
+    emoji.classList.remove("change");
+  },90);
+
+  statusText.textContent = names[expression];
+}
+
+function classify(face) {
+  const faceWidth = distance(face[234],face[454]);
+
+  const mouthWidth =
+    ratio(face[61],face[291],faceWidth);
+
+  const mouthOpen =
+    ratio(face[13],face[14],faceWidth);
+
+  const leftEye =
+    ratio(face[159],face[145],
+          distance(face[33],face[133]));
+
+  const rightEye =
+    ratio(face[386],face[374],
+          distance(face[362],face[263]));
+
+  const eyeDifference =
+    Math.abs(leftEye-rightEye);
+
+  const browLeft =
+    ratio(face[105],face[159],faceWidth);
+
+  const browRight =
+    ratio(face[334],face[386],faceWidth);
+
+  const browAverage =
+    (browLeft+browRight)/2;
+
+  const mouthLeft = face[61].y;
+  const mouthRight = face[291].y;
+  const mouthCenter = face[0].y;
+
+  const cornerDrop =
+    ((mouthLeft+mouthRight)/2-mouthCenter);
+
+  // Priority 1: mouth open / surprise
+  if (mouthOpen > 0.11) {
+    return "surprise";
+  }
+
+  // Priority 2: asymmetric eye closure
+  if (
+    eyeDifference > 0.14 &&
+    Math.min(leftEye,rightEye) < 0.17
+  ) {
+    return "wink";
+  }
+
+  // Priority 3: smiling
+  if (mouthWidth > Number(smileInput.value)) {
+    return "happy";
+  }
+
+  // Priority 4: experimental sadness
+  if (
+    cornerDrop > 0.025 &&
+    mouthWidth < 0.39 &&
+    mouthOpen < 0.045
+  ) {
+    return "sad";
+  }
+
+  // Priority 5: experimental angry brow
+  if (
+    browAverage < 0.085 &&
+    mouthWidth < 0.42 &&
+    mouthOpen < 0.05
+  ) {
+    return "angry";
+  }
+
+  return "normal";
+}
+
+function stableUpdate(expression) {
+  if (expression === candidate) {
+    candidateCount++;
+  } else {
+    candidate = expression;
+    candidateCount = 1;
+  }
+
+  if (
+    candidateCount >=
+    Number(stabilityInput.value)
+  ) {
+    showExpression(expression);
+  }
 }
 
 async function startCamera() {
@@ -144,7 +306,7 @@ async function startCamera() {
   try {
     if (!window.FaceMesh) {
       throw new Error(
-        "Face detection library unavailable. Check internet."
+        "Face detection library unavailable."
       );
     }
 
@@ -163,46 +325,30 @@ async function startCamera() {
 
     faceMesh = new FaceMesh({
       locateFile: file =>
-        "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/" + file
+        "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/" +
+        file
     });
 
     faceMesh.setOptions({
       maxNumFaces: 1,
-      refineLandmarks: false,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
+      refineLandmarks: true,
+      minDetectionConfidence: 0.55,
+      minTrackingConfidence: 0.55
     });
 
     faceMesh.onResults(results => {
       const face = results.multiFaceLandmarks?.[0];
 
       if (!face) {
-        emoji.textContent = "🙂";
-        statusText.textContent = "Looking for your face...";
+        candidate = "normal";
+        candidateCount = 0;
+        showExpression("normal");
+        statusText.textContent =
+          "Looking for your face...";
         return;
       }
 
-      const mouthWidth = distance(face[61], face[291]);
-      const mouthOpen = distance(face[13], face[14]);
-      const faceWidth = distance(face[234], face[454]);
-
-      const smileRatio = mouthWidth / faceWidth;
-      const openRatio = mouthOpen / faceWidth;
-
-      if (openRatio > 0.11) {
-        emoji.textContent = "😮";
-        statusText.textContent = "Mouth open!";
-      }
-      else if (
-        smileRatio > Number(sensitivity.value)
-      ) {
-        emoji.textContent = "😄";
-        statusText.textContent = "Smile detected!";
-      }
-      else {
-        emoji.textContent = "🙂";
-        statusText.textContent = "Face detected";
-      }
+      stableUpdate(classify(face));
     });
 
     running = true;
@@ -211,8 +357,9 @@ async function startCamera() {
 
     requestAnimationFrame(detectFace);
 
-  } catch (error) {
-    statusText.textContent = error.message;
+  } catch(error) {
+    statusText.textContent =
+      "Camera error: " + error.message;
     startBtn.disabled = false;
   }
 }
@@ -224,10 +371,10 @@ async function detectFace() {
     processing = true;
 
     try {
-      await faceMesh.send({ image: video });
-    } catch (error) {
+      await faceMesh.send({image:video});
+    } catch(error) {
       statusText.textContent =
-        "Detection error: " + error.message;
+        "Tracking error: " + error.message;
     } finally {
       processing = false;
     }
@@ -236,7 +383,13 @@ async function detectFace() {
   requestAnimationFrame(detectFace);
 }
 
-startBtn.addEventListener("click", startCamera);
+startBtn.addEventListener("click",startCamera);
+
+previewBtn.addEventListener("click",() => {
+  const hidden = video.classList.toggle("hidden");
+  previewBtn.textContent =
+    hidden ? "Show Camera" : "Hide Camera";
+});
 </script>
 
 </body>
